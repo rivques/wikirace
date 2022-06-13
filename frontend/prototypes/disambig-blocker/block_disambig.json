@@ -1,6 +1,0 @@
-[{
-    "id": 1,
-    "priority": 4,
-    "action": {"type": "redirect", "redirect": {"url": "http://google.com/gen_204"}},
-    "condition": {"domains": ["wikipedia.org"], "urlFilter": "(disambiguation)", "resourceTypes": ["main_frame"]}
-}]
