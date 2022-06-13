@@ -7,8 +7,20 @@
         "default_popup": "popup.html"
       },
     "permissions": [
-        "declarativeNetRequestWithHostAccess"
+        "declarativeNetRequest"
     ],
+    "declarative_net_request": {
+        "rule_resources": [{
+                "id": "block_disambig",
+                "enabled": true,
+                "path": "block_disambig.json"
+            },
+            {
+                "id": "block_external",
+                "enabled": true,
+                "path": "block_external.json"
+            }]
+    },
     "host_permissions": [
         "*://*.wikipedia.org/*"
     ]
