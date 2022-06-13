@@ -7,9 +7,10 @@
         "default_popup": "popup.html"
       },
     "permissions": [
-        "declarativeNetRequestWithHostAccess"
+        "declarativeNetRequest"
     ],
     "host_permissions": [
-        "*://*.wikipedia.org/*"
+        "*://*.wikipedia.org/*",
+        "<all_urls>"
     ]
 }
