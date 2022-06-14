@@ -4,21 +4,39 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="popup.css">
+    <script src="https://unpkg.com/peerjs@1.4.5/dist/peerjs.min.js"></script>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js" ></script>
 </head>
 <body>
     <div id="home">
         <h1>WikiRace</h1>
         <br>
+        <div id="error" style="display: none;color: red;"></div>
         <input type="text" id="username" placeholder="Username">
         <br>
         <button id="host-button">Host Game (no address needed)</button>
         <br>
-        <input type="text" id="lobby-address" placeholder="Lobby address">
+        <input type="text" id="lobby-address" placeholder="Lobby ID">
         <br>
         <button id="join-button" disabled>Join Game<span id="addr-show"></span></button>
     </div>
     <div id="lobby" style="display: none;">
-        lobby
+        <div id="lobby-container">
+            <div class="leftSide">
+                <ul id="player-list">
+                </ul>
+                <div id="ready-leave">
+                    <button id="ready-button">Ready</button>
+                    <button id="leave-button">Leave</button>
+                </div>
+            </div>
+            <div class="rightSide">
+                Lobby ID: <span id="lobbyID"></span>
+                <br>
+
+            </div>
+        </div>
     </div>
     <div id="prerace" style="display: none;">
         prerace
