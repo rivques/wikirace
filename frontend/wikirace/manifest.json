@@ -1,0 +1,15 @@
+{
+    "name": "Wikirace",
+    "description": "An extension to assist with Wikipedia races",
+    "version": "1.0",
+    "manifest_version": 3,
+    "action": {
+        "default_popup": "popup.html"
+      },
+    "permissions": [
+        "declarativeNetRequestWithHostAccess"
+    ],
+    "host_permissions": [
+        "*://*.wikipedia.org/*"
+    ]
+}
