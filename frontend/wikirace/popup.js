@@ -11,6 +11,8 @@ let isHosting = null; // null: not active, false: joined but not hosting, true: 
 let hostPeer = undefined
 let isJoining = false;
 let clientPeer = undefined;
+let clientConn = undefined;
+let isReady = false;
 
 let players = [];
 
@@ -58,23 +60,24 @@ function joinGame(username, addr) {
     document.getElementById("join-button").textContent = "Joining...";
     clientPeer.on("open", function(id) {
         console.log("Client peer id: " + id);
-        let conn = clientPeer.connect(addr);
-        conn.on("open", function() {
+        clientConn = clientPeer.connect(addr);
+        clientConn.on("open", function() {
             console.log("Connected to host");
-            conn.send({
+            clientConn.send({
                 type: "join",
                 username: username
             });
             isJoining = true;
             // join request, etc
         });
-        conn.on("data", function(data) {
-            console.log("Received data from host: " + data);
+        clientConn.on("data", function(data) {
+            console.log("Received data from host: " + JSON.stringify(data));
             if(isJoining){
                 if(data.type === "join-accept"){
                     console.log("Join accepted");
                     isJoining = false;
                     setMasterState(MasterState.LOBBY);
+                    document.getElementById("lobbyID").textContent = addr
                 }
                 else if(data.type === "join-deny"){
                     console.log("Join denied");
@@ -110,11 +113,14 @@ function joinGame(username, addr) {
                 }
             }
         });
-        conn.on("close", function() {
+        clientConn.on("close", function() {
             console.log("Connection closed");
-            // todo
+            clientConn = undefined;
+            leaveGame();
+            document.getElementById("error").style.display = "block";
+            document.getElementById("error").textContent = "Game ended by host.";
         });
-        conn.on("error", function(err) {
+        clientConn.on("error", function(err) {
             console.log("Client connection error: " + err);
         });
     });
@@ -141,7 +147,7 @@ function hostGame(username) {
                 // packet sstuff here
             });
             conn.on("data", function(data) {
-                console.log("Host peer received data: " + data);
+                console.log("Host peer received data: " + JSON.stringify(data));
                 switch(data.type){
                     case "join":
                         console.log("Host peer received join request");
@@ -165,8 +171,20 @@ function hostGame(username) {
                             });
                         }
                         break;
-                    case "ready":
-                        break
+                    case "ready-status":
+                        console.log("Host peer received ready status");
+                        players.forEach(p => {
+                            if(p.conn.peer === conn.peer){
+                                p.isReady = data.isReady;
+                            }
+                        });
+                        players.forEach(p => {
+                            p.conn.send({
+                                type: "player-update",
+                                players: players.map(p => {return {username: p.username, isHost: p.conn.peer === clientPeer.id, isReady: p.isReady}})
+                            });
+                        });
+                        break;
                 }
                         
             });
@@ -179,6 +197,7 @@ function hostGame(username) {
             });
         });
         joinGame(username, hostPeer.id);
+        isHosting = true;
     });
     hostPeer.on("error", function(err) {
         console.log("Host peer error: " + err);
@@ -208,6 +227,56 @@ document.getElementById("join-button").addEventListener("click", function(event)
     }
     joinGame(document.getElementById("username").value, document.getElementById("lobby-address").value);
 });
+
+document.getElementById("ready-button").addEventListener("click", function(event) {
+    if(isReady){
+        document.getElementById("ready-button").textContent = "Ready";
+        isReady = false;
+    } else {
+        document.getElementById("ready-button").textContent = "Not Ready";
+        isReady = true;
+    }
+    clientConn.send({
+        type: "ready-status",
+        isReady: isReady
+    });
+});
+
+document.getElementById("leave-button").addEventListener("click", (e) => (leaveGame()));
+
+function leaveGame(){
+    if(isHosting){
+        if(confirm("Are you sure you want to leave the game? All players will be disconnected.")){
+            players.forEach(p => {
+                p.conn.close();
+            });
+            hostPeer.destroy();
+            players = [];
+        } else {
+            return;
+        }
+    }
+    isHosting = null;
+    document.getElementById("host-button").textContent = "Host Game (no address needed)";
+    document.getElementById("host-button").disabled = false;
+    document.getElementById("join-button").disabled = false;
+    document.getElementById("join-button").textContent = "Join Game";
+    document.getElementById("username").value = "";
+    document.getElementById("lobby-address").value = "";
+    document.getElementById("error").style.display = "none";
+    document.getElementById("error").textContent = "";
+    setMasterState(MasterState.HOME);
+}
+
+window.onbeforeunload = function(e) {
+    if(isHosting){
+        isHosting = false;
+        players.forEach(p => {
+            p.conn.close();
+        });
+    }
+    return;
+}
 
 // --------------------------------------------------------------
 const wordList = [
