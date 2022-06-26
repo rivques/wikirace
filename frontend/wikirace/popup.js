@@ -6,6 +6,8 @@ const MasterState = {
     POSTRACE: "POSTRACE"
 }
 
+const WIKIPEDIA_API_URL = 'https://en.wikipedia.org/w/api.php';
+
 let masterState = MasterState.HOME;
 let isHosting = null; // null: not active, false: joined but not hosting, true: hosting
 let hostPeer = undefined
@@ -13,6 +15,7 @@ let isJoining = false;
 let clientPeer = undefined;
 let clientConn = undefined;
 let isReady = false;
+let clientLeft = false;
 
 let players = [];
 
@@ -54,6 +57,7 @@ function generateId(){
 function joinGame(username, addr) {
     console.log("Joining game at " + addr + " with username " + username);
     isHosting = false;
+    clientLeft = false;
     clientPeer = new Peer(generateId(), options={secure: true, debug: 2});
     document.getElementById("host-button").disabled = true;
     document.getElementById("join-button").disabled = true;
@@ -110,6 +114,10 @@ function joinGame(username, addr) {
 
                         });
                         break;
+                    case "state-change":
+                        console.log("State change");
+                        setMasterState(data.newState);
+                        break;
                 }
             }
         });
@@ -117,8 +125,10 @@ function joinGame(username, addr) {
             console.log("Connection closed");
             clientConn = undefined;
             leaveGame();
-            document.getElementById("error").style.display = "block";
-            document.getElementById("error").textContent = "Game ended by host.";
+            if(!clientLeft){
+                document.getElementById("error").style.display = "block";
+                document.getElementById("error").textContent = "Game ended by host.";
+            }
         });
         clientConn.on("error", function(err) {
             console.log("Client connection error: " + err);
@@ -128,6 +138,12 @@ function joinGame(username, addr) {
         console.log("Client peer error: " + err);
         document.getElementById("error").textContent = "Client peer error: " + err;
         document.getElementById("error").style.display = "block";
+    });
+    Array.from(document.getElementsByClassName("host-only-inline")).forEach(element => {
+        element.style.display = "none";
+    });
+    Array.from(document.getElementsByClassName("host-only-enabled")).forEach(element => {
+        element.enabled = false;
     });
 }
 
@@ -184,19 +200,44 @@ function hostGame(username) {
                                 players: players.map(p => {return {username: p.username, isHost: p.conn.peer === clientPeer.id, isReady: p.isReady}})
                             });
                         });
+                        if(players.filter(p => p.isReady).length === players.length){
+                            console.log("All players ready");
+                            players.forEach(p => {
+                                p.conn.send({
+                                    type: "state-change",
+                                    newState: "PRERACE"
+                                });
+                            });
+                        }
                         break;
                 }
                         
             });
             conn.on("close", function() {
                 console.log("Host peer connection closed");
-                // tell others about it
+                players.forEach(p => {
+                    if(p.conn.peer === conn.peer){
+                        players.splice(players.indexOf(p), 1);
+                    }
+                });
+                players.forEach(p => {
+                    p.conn.send({
+                        type: "player-update",
+                        players: players.map(p => {return {username: p.username, isHost: p.conn.peer === clientPeer.id, isReady: p.isReady}})
+                    });
+                });
             });
             conn.on("error", function(err) {
                 console.log("Host peer connection error: " + err);
             });
         });
         joinGame(username, hostPeer.id);
+        Array.from(document.getElementsByClassName("host-only-inline")).forEach(element => {
+            element.style.display = "inline";
+        });
+        Array.from(document.getElementsByClassName("host-only-enabled")).forEach(element => {
+            element.enabled = true;
+        });
         isHosting = true;
     });
     hostPeer.on("error", function(err) {
@@ -242,11 +283,11 @@ document.getElementById("ready-button").addEventListener("click", function(event
     });
 });
 
-document.getElementById("leave-button").addEventListener("click", (e) => (leaveGame()));
+document.getElementById("leave-button").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
 
 function leaveGame(){
     if(isHosting){
-        if(confirm("Are you sure you want to leave the game? All players will be disconnected.")){
+        if(players.length <= 1 || confirm("Are you sure you want to leave the game? All players will be disconnected.")){
             players.forEach(p => {
                 p.conn.close();
             });
@@ -276,6 +317,75 @@ window.onbeforeunload = function(e) {
         });
     }
     return;
+}
+
+function loadSuggestions(value) {
+    const queryParams = {
+      action: 'query',
+      format: 'json',
+      gpssearch: value,
+      generator: 'prefixsearch',
+      prop: 'pageprops|pageimages|pageterms',
+      redirects: '', // Automatically resolve redirects
+      ppprop: 'displaytitle',
+      piprop: 'thumbnail',
+      pithumbsize: '160',
+      pilimit: '30',
+      wbptterms: 'description',
+      gpsnamespace: 0, // Only return results in Wikipedia's main namespace
+      gpslimit: 5, // Return at most five results
+      origin: '*',
+    };
+
+    // TODO: add helper for making API requests to WikiMedia API
+    let fetch_url = new URL(WIKIPEDIA_API_URL);
+    let searchString = "?";
+    for (let key in queryParams) {
+        searchString += key + "=" + queryParams[key] + "&";
+    }
+    searchString = searchString.substring(0, searchString.length - 1);
+    fetch_url.search = searchString;
+    console.log(fetch_url.href);
+    fetch(fetch_url, {
+      method: 'GET',
+      headers: {
+        'Api-User-Agent':
+          'WikiRace/0.2 (https://github.com/rivques/wikirace)',
+      },
+    })
+    .then(response => response.text())
+    .then((jsonStr) => {
+        const suggestions = [];
+        console.log(jsonStr);
+        const responseData = JSON.parse(jsonStr);
+        console.log(responseData);
+        const pageResults = responseData.query.pages;
+        for(let prk in pageResults){
+            // Due to https://phabricator.wikimedia.org/T189139, results will not always be limited
+            // to the main namespace (0), so ignore all results which have a different namespace.
+            const pageResult = pageResults[prk];
+            if (pageResult.ns === 0) {
+            let description = pageResult.terms
+            if(description){
+                description = description[0];
+            }
+            if (description) {
+                description = description.charAt(0).toUpperCase() + description.slice(1);
+            }
+
+            let thumbnail = pageResult.thumbnail;
+            if (thumbnail) {
+                thumbnail = thumbnail.source;
+            }
+            suggestions[pageResult.index - 1] = {
+                title: pageResult.title,
+                description,
+                thumbnailUrl: thumbnail
+            };
+            }
+        };
+        console.log(suggestions);
+    });
 }
 
 // --------------------------------------------------------------
