@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="popup.css">
     <script src="peerjs.min.js"></script>
     <script src="jquery.min.js" ></script>
+    <script src="popup.js" defer></script>
+    <title>Wikirace</title>
 </head>
 <body>
     <div id="home">
@@ -41,20 +43,19 @@
         </div>
     </div>
     <div id="prerace" style="display: none;">
-        <input id="start-page" class="host-only-enabled" type="text" placeholder="Start page">
-        <input id="end-page" class="host-only-enabled" type="text" placeholder="End page">
+        <input id="start-page" class="host-only-enabled" type="text" style="color: black" placeholder="Start page">
+        <input id="end-page" class="host-only-enabled" type="text" style="color: black" placeholder="End page">
         <br> <br>
-        <button id="start-button" class="host-only-inline">Start Race</button>
+        <button id="start-button" class="host-only-inline" disabled>Start Race</button>
         <button id="back-to-lobby-button" class="host-only-inline">Back to Lobby</button>
         <button id="prerace-leave">Leave Race</button>
         <div id="countdown"></div>
     </div>
     <div id="raceactive" style="display: none;">
-        raceactive
+        <iframe id="game-frame">
     </div>
     <div id="postrace" style="display: none;">
         postrace
     </div>
-    <script src="popup.js"></script>
 </body>
 </html>

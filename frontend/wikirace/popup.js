@@ -16,8 +16,15 @@ let clientPeer = undefined;
 let clientConn = undefined;
 let isReady = false;
 let clientLeft = false;
+let timeOffset = 0;
+let startTime = 0;
+let startUrl = "";
+let endUrl = "";
 
 let players = [];
+
+isWaitingOnStartSuggestions = false;
+isWaitingOnEndSuggestions = false;
 
 function setMasterState(newState) {
     masterState = newState;
@@ -118,6 +125,18 @@ function joinGame(username, addr) {
                         console.log("State change");
                         setMasterState(data.newState);
                         break;
+                    case "page-update":
+                        console.log("Page update");
+                        if(!isHosting){
+                            document.getElementById((data.isStart ? "start" : "end") + "-page").value = data.newPage;
+                        }
+                        break;
+                    case "race-start":
+                        console.log("race starting");
+                        timeOffset = data.timeNow - Date.now();
+                        startTime = Date.now()
+                        setMasterState(MasterState.RACEACTIVE);
+                        document.getElementById("game-frame").src = data.startPage;
                 }
             }
         });
@@ -143,7 +162,7 @@ function joinGame(username, addr) {
         element.style.display = "none";
     });
     Array.from(document.getElementsByClassName("host-only-enabled")).forEach(element => {
-        element.enabled = false;
+        element.disabled = true;
     });
 }
 
@@ -167,6 +186,13 @@ function hostGame(username) {
                 switch(data.type){
                     case "join":
                         console.log("Host peer received join request");
+                        if(masterState != MasterState.LOBBY && masterState != MasterState.HOME){
+                            conn.send({
+                                type: "join-deny",
+                                reason: "Game is already in progress."
+                            });
+                            return;
+                        }
                         if (players.map(p => p.username).includes(data.username)) {
                             console.log("Join request from " + data.username + " denied: username already in use");
                             conn.send({
@@ -210,6 +236,66 @@ function hostGame(username) {
                             });
                         }
                         break;
+                    case "request-state-change":
+                        console.log("host peer recieved request state change");
+                        players.forEach(p => {
+                            if(p.conn.peer === conn.peer){
+                                console.log(`found player ${p.username}, is host: ${p.conn.peer === clientPeer.id}`);
+                                if (p.conn.peer === clientPeer.id){
+                                    p.conn.send({
+                                        "type": "state-change-response",
+                                        "success": true
+                                    });
+                                    for (const player of players){
+                                        player.isReady = false;
+                                        player.conn.send({
+                                            type: "state-change",
+                                            newState: data.newState.toString()
+                                        });
+                                    }
+                                    for(const player of players){
+                                        player.conn.send({
+                                            type: "player-update",
+                                            players: players.map(p => {return {username: p.username, isHost: p.conn.peer === clientPeer.id, isReady: p.isReady}})
+                                        });
+                                    }
+                                } else {
+                                    p.conn.send({
+                                        "type": "state-change-response",
+                                        "success": false
+                                    });
+                                }
+                            }
+                        });
+                        break;
+                    case "new-page-visit":
+                        console.log("Host peer received new page visit");
+                        break;
+                    case "page-update-request":
+                        console.log("Host peer received page update");
+                        if(playerIsHost(conn)){
+                            console.log("Host peer is host, sending page update");
+                            for(const player of players){
+                                player.conn.send({
+                                    type: "page-update",
+                                    newPage: data.newPage,
+                                    isStart: data.isStart
+                                });
+                            }
+                        }
+                        break;
+                    case "request-race-start":
+                        if(playerIsHost(conn)){
+                            for(const player of players){
+                                player.conn.send({
+                                    type: "race-start",
+                                    start: data.start,
+                                    end: data.end,
+                                    "allow-disambigs": data.allow-disambigs,
+                                    timeNow: Date.now()
+                                })
+                            }
+                        }
                 }
                         
             });
@@ -236,7 +322,7 @@ function hostGame(username) {
             element.style.display = "inline";
         });
         Array.from(document.getElementsByClassName("host-only-enabled")).forEach(element => {
-            element.enabled = true;
+            element.disabled = false;
         });
         isHosting = true;
     });
@@ -283,7 +369,54 @@ document.getElementById("ready-button").addEventListener("click", function(event
     });
 });
 
+document.getElementById("back-to-lobby-button").addEventListener("click", (e) => {
+    clientConn.send({
+        type: "request-state-change",
+        newState: "LOBBY"
+    })
+});
+document.getElementById("start-button").addEventListener("click", (e) => {
+    if(isWaitingOnEndSuggestions || isWaitingOnStartSuggestions){
+        return;
+    }
+    clientConn.send({
+        type: "request-race-start",
+        start: document.getElementById("start-page").value,
+        end: document.getElementById("end-page").value,
+        "allow-disambigs": document.getElementById("allow-disambigs").value
+    })
+});
+
+document.getElementById("start-page").addEventListener("input", (e) => {
+    loadSuggestions(e.currentTarget.value, true);
+    isWaitingOnStartSuggestions = true;
+    clientConn.send({
+        type: "page-update-request",
+        isStart: true,
+        newPage: e.currentTarget.value
+    })
+});
+
+document.getElementById("end-page").addEventListener("input", (e) => {
+    isWaitingOnEndSuggestions = true;
+    loadSuggestions(e.currentTarget.value, false);
+    clientConn.send({
+        type: "page-update-request",
+        isStart: false,
+        newPage: e.currentTarget.value
+    })
+})
+
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
+    if(request.loaded){
+        // If you used a pattern, do extra checks here:
+        // if(request.loaded == "https://website.com/index.php")
+        console.log(`Loaded from page ${request.loaded}`);
+    }
+});
+
 document.getElementById("leave-button").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
+document.getElementById("prerace-leave").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
 
 function leaveGame(){
     if(isHosting){
@@ -319,21 +452,26 @@ window.onbeforeunload = function(e) {
     return;
 }
 
-function loadSuggestions(value) {
+function playerIsHost(conn){
+    return conn.peer == clientPeer.id
+}
+
+function loadSuggestions(value, isStart) {
     const queryParams = {
       action: 'query',
       format: 'json',
       gpssearch: value,
       generator: 'prefixsearch',
-      prop: 'pageprops|pageimages|pageterms',
-      redirects: '', // Automatically resolve redirects
+      prop: 'pageprops|pageimages|pageterms|info',
+      redirects: 'false', // Automatically resolve redirects
       ppprop: 'displaytitle',
       piprop: 'thumbnail',
       pithumbsize: '160',
       pilimit: '30',
+      inprop: 'url',
       wbptterms: 'description',
       gpsnamespace: 0, // Only return results in Wikipedia's main namespace
-      gpslimit: 5, // Return at most five results
+      gpslimit: 1, // Return at most one result
       origin: '*',
     };
 
@@ -359,7 +497,18 @@ function loadSuggestions(value) {
         console.log(jsonStr);
         const responseData = JSON.parse(jsonStr);
         console.log(responseData);
+        if(!responseData.query){
+            document.getElementById((isStart ? "start" : "end") + "-page").style.color = "red";
+            document.getElementById("start-button").disabled = true;
+            if(isStart){
+                isWaitingOnStartSuggestions = false;
+            } else {
+                isWaitingOnEndSuggestions = false;
+            }
+            return false;
+        }
         const pageResults = responseData.query.pages;
+        
         for(let prk in pageResults){
             // Due to https://phabricator.wikimedia.org/T189139, results will not always be limited
             // to the main namespace (0), so ignore all results which have a different namespace.
@@ -382,9 +531,55 @@ function loadSuggestions(value) {
                 description,
                 thumbnailUrl: thumbnail
             };
+            if(isStart){
+                startUrl = pageResult.canonicalurl;
+            } else {
+                endUrl = pageResult.canonicalurl;
+            }
+            if(pageResult.title.toLowerCase() == value.toLowerCase()){
+                document.getElementById((isStart ? "start" : "end") + "-page").style.color = "green";
+                if(document.getElementById((isStart ? "end" : "start") + "-page").style.color == "green"){
+                    document.getElementById("start-button").disabled = false;
+                }
+                if(isStart){
+                    startUrl = pageResult.canonicalurl;
+                    isWaitingOnStartSuggestions = false;
+                } else {
+                    endUrl = pageResult.canonicalurl;
+                    isWaitingOnEndSuggestions = false;
+                }
+                return true;
+            }
             }
         };
+        const redirects = responseData.query.redirects;
+        if(redirects){
+            for(const redirect of redirects){
+                if(redirect.from.toLowerCase() == value.toLowerCase()){
+                    console.log((isStart ? "start" : "end") + "-page")
+                    document.getElementById((isStart ? "start" : "end") + "-page").style.color = "green";
+                    if(document.getElementById((isStart ? "end" : "start") + "-page").style.color == "green"){
+                        document.getElementById("start-button").disabled = false;
+                    }
+                    if(isStart){
+                        isWaitingOnStartSuggestions = false;
+                        startUrl = pageResults
+                    } else {
+                        isWaitingOnEndSuggestions = false;
+                    }
+                    return true;
+                }
+            }
+        }
         console.log(suggestions);
+        document.getElementById((isStart ? "start" : "end") + "-page").style.color = "red";
+        document.getElementById("start-button").disabled = true;
+        if(isStart){
+            isWaitingOnStartSuggestions = false;
+        } else {
+            isWaitingOnEndSuggestions = false;
+        }
+        return false
     });
 }
 

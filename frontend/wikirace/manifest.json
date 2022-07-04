@@ -14,5 +14,13 @@
     ],
     "background": {
         "service_worker": "background.js"
-    }
+    },
+    "content_scripts": [
+        {
+            "matches": ["https://*.wikipedia.org/*"],
+            "js": ["content.js"],
+            "all_frames": true,
+            "run_at": "document_start"
+        }
+    ]
 }
