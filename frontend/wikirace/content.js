@@ -1,8 +1,5 @@
-console.log("iframe url is " + window.location.href);
 if(inIframe()) {
-chrome.runtime.sendMessage({loaded: window.location.href});
-} else {
-    console.log("not in iframe");
+chrome.runtime.sendMessage({loaded: window.location.href, name: document.getElementById("firstHeading").textContent});
 }
 
 function inIframe () {

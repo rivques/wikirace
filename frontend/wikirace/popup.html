@@ -18,7 +18,7 @@
             <br>
             <input type="text" id="username" placeholder="Username">
             <button id="host-button">Host Game (no address needed)</button>
-            <input type="text" id="lobby-address" placeholder="Lobby ID">
+            <input type="text" id="lobby-address" placeholder="Lobby ID" autocomplete="off">
             <button id="join-button" disabled>Join Game<span id="addr-show"></span></button>
             <br>
             <a>How to play</a>
@@ -43,8 +43,8 @@
         </div>
     </div>
     <div id="prerace" style="display: none;">
-        <input id="start-page" class="host-only-enabled" type="text" style="color: black" placeholder="Start page">
-        <input id="end-page" class="host-only-enabled" type="text" style="color: black" placeholder="End page">
+        <input id="start-page" class="host-only-enabled" type="text" style="color: black" placeholder="Start page" autocomplete="off">
+        <input id="end-page" class="host-only-enabled" type="text" style="color: black" placeholder="End page" autocomplete="off">
         <br> <br>
         <button id="start-button" class="host-only-inline" disabled>Start Race</button>
         <button id="back-to-lobby-button" class="host-only-inline">Back to Lobby</button>
@@ -52,10 +52,27 @@
         <div id="countdown"></div>
     </div>
     <div id="raceactive" style="display: none;">
-        <iframe id="game-frame">
+        <div id="game-container">
+            <div id="game-info">
+                <span id="game-controls">
+                    Target page: <span id="target-page"></span>
+                    <span id="timer">0:00:00</span>
+                    <button id="ingame-leave">Leave</button>
+                </span>
+                <span id="player-info">
+                </span>
+            </div>
+            <iframe id="game-frame"></iframe>
+        </div>
     </div>
     <div id="postrace" style="display: none;">
-        postrace
+        <h2>Race Over</h2>
+        <h3>Winner: <span id="winner-name"></span></h3>
+        <ul id="end-player-list">
+        </ul>
+        <button class="host-only-inline" id="new-round">New Round</button>
+        <button class="host-only-inline" id="postgame-to-lobby">Back to Lobby</button>
+        <button id="postgame-leave">Leave Race</button>
     </div>
 </body>
 </html>

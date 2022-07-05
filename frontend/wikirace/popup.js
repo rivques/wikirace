@@ -20,6 +20,10 @@ let timeOffset = 0;
 let startTime = 0;
 let startUrl = "";
 let endUrl = "";
+let startName = "";
+let endName = "";
+let timerInterval = undefined;
+let playerResults = [];
 
 let players = [];
 
@@ -35,6 +39,13 @@ function setMasterState(newState) {
         } else {
             document.getElementById(state.toLowerCase()).style.display = "none";
         }
+    }
+    if(newState == MasterState.LOBBY){
+        isReady = false;
+        document.getElementById("ready-button").textContent = "Ready";
+    } else if(newState == MasterState.PRERACE){
+        document.getElementById("start-page").value = "";
+        document.getElementById("end-page").value = "";
     }
 }
 
@@ -105,6 +116,7 @@ function joinGame(username, addr) {
                     case "player-update":
                         console.log("Player update");
                         document.getElementById("player-list").innerHTML = "";
+                        document.getElementById("player-info").innerHTML = "";
                         data.players.forEach(element => {
                             // add each player, along with host and ready status, to #player-list
                             let player = document.createElement("li");
@@ -117,8 +129,8 @@ function joinGame(username, addr) {
                             } else {
                                 player.style.color = "red";
                             }
-                            document.getElementById("player-list").appendChild(player);
-
+                            document.getElementById("player-list").appendChild(player.cloneNode(true));              
+                            document.getElementById("player-info").appendChild(player.cloneNode(true));
                         });
                         break;
                     case "state-change":
@@ -136,7 +148,33 @@ function joinGame(username, addr) {
                         timeOffset = data.timeNow - Date.now();
                         startTime = Date.now()
                         setMasterState(MasterState.RACEACTIVE);
-                        document.getElementById("game-frame").src = data.startPage;
+                        document.getElementById("game-frame").src = data.start;
+                        document.getElementById("target-page").textContent = data.endName;
+                        timerInterval = setInterval(function(){
+                            let secondsElapsed = Math.floor((Date.now() - startTime + timeOffset) / 1000);
+                            // go from seconds elapsed to hours, minutes, seconds
+                            let hours = Math.floor(secondsElapsed / 3600);
+                            let minutes = Math.floor((secondsElapsed % 3600) / 60);
+                            let seconds = secondsElapsed % 60;
+                            document.getElementById("timer").textContent = hours + ":" + (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+                        }, 1000);
+                        break;
+                    case "race-end":
+                        console.log("client: race over");
+                        setMasterState(MasterState.POSTRACE);
+                        playerResults = data.players.sort((a, b) => a.time - b.time);
+                        document.getElementById("winner-name").textContent = playerResults[0].username;
+                        document.getElementById("end-player-list").innerHTML = "";
+                        for (const playerResult of playerResults){
+                            let player = document.createElement("li");
+                            // go from milliseconds to hours, minutes, seconds
+                            let hours = Math.floor(playerResult.time / 3600000);
+                            let minutes = Math.floor((playerResult.time % 3600000) / 60000);
+                            let seconds = Math.floor((playerResult.time % 60000) / 1000);
+                            player.textContent = playerResult.username + ": " + hours + ":" + (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+
+                            document.getElementById("end-player-list").appendChild(player);
+                        }
                 }
             }
         });
@@ -201,7 +239,7 @@ function hostGame(username) {
                             });
                         } else {
                             console.log("Join request from " + data.username + " accepted");
-                            players.push({conn: conn, username: data.username});
+                            players.push({conn: conn, username: data.username, pageVisits: [], finished: false});
                             conn.send({
                                 type: "join-accept"
                             });
@@ -268,9 +306,6 @@ function hostGame(username) {
                             }
                         });
                         break;
-                    case "new-page-visit":
-                        console.log("Host peer received new page visit");
-                        break;
                     case "page-update-request":
                         console.log("Host peer received page update");
                         if(playerIsHost(conn)){
@@ -286,16 +321,59 @@ function hostGame(username) {
                         break;
                     case "request-race-start":
                         if(playerIsHost(conn)){
+                            if(data.start.startsWith("https://en.wikipedia.org/wiki/") && data.end.startsWith("https://en.wikipedia.org/wiki/")){
                             for(const player of players){
+                                player.pageVisits = [];
+                                player.finished = false;
                                 player.conn.send({
                                     type: "race-start",
                                     start: data.start,
+                                    startName: data.startName,
+                                    endName: data.endName,
                                     end: data.end,
-                                    "allow-disambigs": data.allow-disambigs,
+                                    "allow-disambigs": data["allow-disambigs"],
                                     timeNow: Date.now()
                                 })
+                                player.conn.send({
+                                    type: "player-update",
+                                    players: players.map(p => {return {username: p.username, isHost: p.conn.peer === clientPeer.id, isReady: false}})
+                                });
+                            }
+                        } else {
+                            console.log(`Invalid start (${data.start}) or end (${data.end}) URL`);
+                        }
+                        }
+                        break;
+                    case "new-page-visit":
+                        console.log("Host peer received new page visit");
+                        for(const player of players){
+                            if(player.conn.peer == conn.peer){
+                                player.pageVisits.push({url: data.newUrl, timestamp: Date.now(), name: data.newName});
+                                if(data.newUrl == endUrl){
+                                    console.log(`${player.username} has reached the end`);
+                                    player.finished = true;
+                                    players.forEach(pToUpdate => {
+                                        pToUpdate.conn.send({
+                                            type: "player-update",
+                                            players: players.map(p => {return {username: p.username, isHost: p.conn.peer === clientPeer.id, isReady: p.finished}})
+                                        });
+                                    });
+                                    if(players.filter(p => p.finished).length === players.length){
+                                        console.log("All players finished");
+                                        players.forEach(p => {
+                                            p.conn.send({
+                                                type: "race-end",
+                                                players: players.map(p => {return {
+                                                    username: p.username,
+                                                    time: p.pageVisits[p.pageVisits.length - 1].timestamp - p.pageVisits[0].timestamp,
+                                                    path: p.pageVisits.map(p => p.name)}})
+                                            });
+                                        });
+                                    }
+                                }
                             }
                         }
+                        break;
                 }
                         
             });
@@ -343,7 +421,7 @@ document.getElementById("host-button").addEventListener("click", function(event)
         document.getElementById("error").style.display = "block";
         return;
     }
-    hostGame(document.getElementById("username").value);
+    hostGame(document.getElementById("username").value.trim());
 });
 
 document.getElementById("join-button").addEventListener("click", function(event) {
@@ -352,7 +430,7 @@ document.getElementById("join-button").addEventListener("click", function(event)
         document.getElementById("error").style.display = "block";
         return;
     }
-    joinGame(document.getElementById("username").value, document.getElementById("lobby-address").value);
+    joinGame(document.getElementById("username").value.trim(), document.getElementById("lobby-address").value.trim());
 });
 
 document.getElementById("ready-button").addEventListener("click", function(event) {
@@ -375,15 +453,32 @@ document.getElementById("back-to-lobby-button").addEventListener("click", (e) =>
         newState: "LOBBY"
     })
 });
+
+document.getElementById("postgame-to-lobby").addEventListener("click", (e) => {
+    clientConn.send({
+        type: "request-state-change",
+        newState: "LOBBY"
+    })
+});
+
+document.getElementById("new-round").addEventListener("click", (e) => {
+    clientConn.send({
+        type: "request-state-change",
+        newState: "PRERACE"
+    })
+});
+
 document.getElementById("start-button").addEventListener("click", (e) => {
     if(isWaitingOnEndSuggestions || isWaitingOnStartSuggestions){
         return;
     }
     clientConn.send({
         type: "request-race-start",
-        start: document.getElementById("start-page").value,
-        end: document.getElementById("end-page").value,
-        "allow-disambigs": document.getElementById("allow-disambigs").value
+        start: startUrl,
+        startName: startName,
+        end: endUrl,
+        endName: endName,
+        "allow-disambigs": document.getElementById("allow-disambigs").checked
     })
 });
 
@@ -408,15 +503,25 @@ document.getElementById("end-page").addEventListener("input", (e) => {
 })
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
-    if(request.loaded){
-        // If you used a pattern, do extra checks here:
-        // if(request.loaded == "https://website.com/index.php")
-        console.log(`Loaded from page ${request.loaded}`);
-    }
+    chrome.tabs.getCurrent().then(tab => {
+        if(request.loaded && request.name && masterState == MasterState.RACEACTIVE && tab.id == sender.tab.id){
+            // If you used a pattern, do extra checks here:
+            // if(request.loaded == "https://website.com/index.php")
+            console.log(`Loaded from page ${request.loaded}, title ${request.name}`);
+            clientConn.send({
+                type: "new-page-visit",
+                newUrl: request.loaded,
+                newName: request.name
+            });
+        }
+    });
 });
 
 document.getElementById("leave-button").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
 document.getElementById("prerace-leave").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
+document.getElementById("ingame-leave").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
+document.getElementById("postgame-leave").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
+
 
 function leaveGame(){
     if(isHosting){
@@ -508,11 +613,11 @@ function loadSuggestions(value, isStart) {
             return false;
         }
         const pageResults = responseData.query.pages;
-        
+        let pageResult;
         for(let prk in pageResults){
             // Due to https://phabricator.wikimedia.org/T189139, results will not always be limited
             // to the main namespace (0), so ignore all results which have a different namespace.
-            const pageResult = pageResults[prk];
+            pageResult = pageResults[prk];
             if (pageResult.ns === 0) {
             let description = pageResult.terms
             if(description){
@@ -544,9 +649,11 @@ function loadSuggestions(value, isStart) {
                 if(isStart){
                     startUrl = pageResult.canonicalurl;
                     isWaitingOnStartSuggestions = false;
+                    startName = pageResult.title;
                 } else {
                     endUrl = pageResult.canonicalurl;
                     isWaitingOnEndSuggestions = false;
+                    endName = pageResult.title;
                 }
                 return true;
             }
@@ -563,9 +670,12 @@ function loadSuggestions(value, isStart) {
                     }
                     if(isStart){
                         isWaitingOnStartSuggestions = false;
-                        startUrl = pageResults
+                        startUrl = pageResult.canonicalurl;
+                        startName = redirect.to;
                     } else {
-                        isWaitingOnEndSuggestions = false;
+                        isWaitingOnEndSuggestions = false
+                        endUrl = pageResult.canonicalurl;
+                        endName = redirect.to;
                     }
                     return true;
                 }
