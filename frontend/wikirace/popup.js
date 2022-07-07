@@ -503,18 +503,16 @@ document.getElementById("end-page").addEventListener("input", (e) => {
 })
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
-    chrome.tabs.getCurrent().then(tab => {
-        if(request.loaded && request.name && masterState == MasterState.RACEACTIVE && tab.id == sender.tab.id){
-            // If you used a pattern, do extra checks here:
-            // if(request.loaded == "https://website.com/index.php")
-            console.log(`Loaded from page ${request.loaded}, title ${request.name}`);
-            clientConn.send({
-                type: "new-page-visit",
-                newUrl: request.loaded,
-                newName: request.name
-            });
-        }
-    });
+    if(request.loaded && request.name && masterState == MasterState.RACEACTIVE){
+        // If you used a pattern, do extra checks here:
+        // if(request.loaded == "https://website.com/index.php")
+        console.log(`Loaded from page ${request.loaded}, title ${request.name}`);
+        clientConn.send({
+            type: "new-page-visit",
+            newUrl: request.loaded,
+            newName: request.name
+        });
+    }
 });
 
 document.getElementById("leave-button").addEventListener("click", (e) => {clientLeft = true; clientConn.close()});
